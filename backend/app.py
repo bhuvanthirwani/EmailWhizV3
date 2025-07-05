@@ -368,17 +368,17 @@ def list_resumes(username):
 @require_query_param('username')
 def list_templates(username):
     print("list_templates")
-    username = request.args.get('username')
     if not username:
         return jsonify({'error': 'Username is required'}), 400
-    user = users_collection.find_one({'username': username})
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-    db_url = user.get('db_url')
-    # For now, use main db
-    templates = db['email_templates'].find({'username': username})
-    _templates = [{'name': t['title'], 'content': t['content']} for t in templates]
-    return jsonify({'templates': _templates, 'username': username}), 200
+    try:
+        details = get_user_details(username)
+        db_url = details.get('db_url')
+        users_db = get_users_db(db_url)
+        templates = users_db['email_templates'].find({'username': username})
+        _templates = [{'name': t['title'], 'content': t['content']} for t in templates]
+        return jsonify({'templates': _templates, 'username': username}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # Companies Datasets API (placeholder, adapt path as needed)
 @app.route('/companies-datasets/<username>', methods=['GET'])
@@ -1036,7 +1036,7 @@ def send_emails():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/templates/create', methods=['POST'])
+@app.route('/templates', methods=['POST'])
 def create_template_post():
     data = request.get_json()
     template_title = data.get('template_title')
@@ -1049,7 +1049,7 @@ def create_template_post():
     try:
         details = get_user_details(username)
         users_db = get_users_db(details['db_url'])
-        
+        print("users_db", details['db_url'])
         if users_db['email_templates'].find_one({"title": template_title, "username": username}):
             return jsonify({'error': 'Template with this title already exists.'}), 400
         
@@ -1064,21 +1064,6 @@ def create_template_post():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/templates/list/<username>', methods=['GET'])
-def list_templates_(username):
-    try:
-        details = get_user_details(username)
-        users_db = get_users_db(details['db_url'])
-        templates = list(users_db['email_templates'].find({"username": username}))
-        
-        # Remove ObjectId from response
-        for template in templates:
-            template.pop('_id', None)
-        
-        return jsonify({'templates': templates}), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/generate_followup', methods=['POST'])
 def generate_followup():
