@@ -1219,7 +1219,7 @@ def get_running_job():
         if running_jobs:
             return jsonify({"jobs": running_jobs}), 200
         else:
-            return jsonify({"error": "No running job found for the user."}), 404
+            return jsonify({"error": "No running job found for the user."}), 200
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
