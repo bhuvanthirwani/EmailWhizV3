@@ -4,13 +4,17 @@ from datetime import datetime, timedelta
 import traceback
 from pymongo import MongoClient
 import pytz
+import os
+import logging_config  # <-- Add this line at the very top!
+import logging
+logger = logging.getLogger(__name__)
 
 from job_manager.schedule_sub_jobs import schedule_sub_job
 from apollo.cold_emails.automation import send_cold_emails_by_automation_through_apollo_emails_job
 from apollo.cold_emails.by_company import send_cold_emails_by_company_through_apollo_emails_job
 
 
-from db.db import get_users_db, get_user_details, jobs_collection
+from db.db import get_users_db, get_user_details, jobs_collection, db
 # # MongoDB Connection
 # client = MongoClient('mongodb+srv://shoaibthakur23:Shoaib@emailwhiz.ltjxh42.mongodb.net/')
 # db = client["EmailWhiz"]
@@ -46,7 +50,7 @@ class CronJobScheduler:
                 last_updated = job.get("job_updated_at", datetime.utcnow())
 
                 if now - last_updated > threshold:
-                    print(f"Job {job_id} appears to be dead, respawning...")
+                    logger.info(f"Job {job_id} appears to be dead, respawning...")
                     self.spawn_job(job)
 
             time.sleep(30)
@@ -62,13 +66,13 @@ class CronJobScheduler:
             running_state = scheduler_meta_collection.find_one({"identifier": "running_state", "env": env})
             
             if running_state.get("status", None) != "running":
-                print("Scheduler is not running...")
+                logger.info("Scheduler is not running...")
                 self.keep_running = False
                 break
-            print("Scheduler is running...")
+            logger.info("Scheduler is running...")
             try:
                 job = jobs_collection.find_one({"status": "scheduled"})
-                print(f"Jobs: {job}")
+                logger.info(f"Jobs: {job}")
                 if job:
                     if self.should_execute(job):
                         self.spawn_job(job)  # Submit job execution to ThreadPoolExecutor
@@ -81,13 +85,13 @@ class CronJobScheduler:
                 time.sleep(30)  # Polling interval
             except Exception as e:
                 traceback.print_exc()
-                print(f"Error in scheduler loop: {e}")
+                logger.error(f"Error in scheduler loop: {e}")
                 break
 
     def spawn_job(self, job):
         """Submit a job to the ThreadPoolExecutor for execution."""
         job_id = str(job["_id"])
-        print(f"Spawning Job ID: {job_id}")
+        logger.info(f"Spawning Job ID: {job_id}")
         future = self.executor.submit(self.execute_job, job)
         self.running_jobs[job_id] = future
 
@@ -124,13 +128,13 @@ class CronJobScheduler:
     def execute_job(self, job):
         """Execute the job and update MongoDB."""
         try:
-            print(f"Executing Job ID: {job['_id']}")
-            print(f"Job: {job}")
+            logger.info(f"Executing Job ID: {job['_id']}")
+            logger.info(f"Job: {job}")
             action = job["action"]
-            print(f"Action: {action}")
+            logger.info(f"Action: {action}")
             
             job_id = job["_id"]
-            print(f"Job ID: {job_id}")
+            logger.info(f"Job ID: {job_id}")
             result = jobs_collection.update_one(
                     {"_id": job_id},
                     {"$set": {
@@ -143,9 +147,9 @@ class CronJobScheduler:
                     }
                     }
                 )
-            print(f"Result: {result} {result.modified_count}")
+            logger.info(f"Result: {result} {result.modified_count}")
             if result.modified_count == 0:
-                print(f"Job {job_id} is already running.")
+                logger.info(f"Job {job_id} is already running.")
                 return
             else:
                 if action in self.job_functions:
@@ -188,9 +192,9 @@ class CronJobScheduler:
                         )
                 else:
 
-                    print(f"No function found for action: {action}")
+                    logger.warning(f"No function found for action: {action}")
         except Exception as e:
-            print(f"Error executing job {job_id}: {e}")
+            logger.error(f"Error executing job {job_id}: {e}")
             job["latest_log"] = f"Error executing job {job_id}: {e}"
             job["status"] = "error"
             job["job_updated_at"] = datetime.utcnow()
@@ -208,13 +212,13 @@ class CronJobScheduler:
 
     # Example job functions
     def send_cold_emails(self):
-        print("Sending cold emails...")
+        logger.info("Sending cold emails...")
 
     def generate_report(self):
-        print("Generating report...")
+        logger.info("Generating report...")
 
     def backup_database(self):
-        print("Backing up the database...")
+        logger.info("Backing up the database...")
 
     def stop_scheduler(self, env):
         """Stop the scheduler and shut down ThreadPoolExecutor."""
@@ -222,16 +226,16 @@ class CronJobScheduler:
         scheduler_meta_collection = db["job_scheduler_meta"]
         scheduler_meta_collection.update_one({"identifier": "running_state", "env": env}, {"$set": {"status": "stopped"}})
         # self.executor.shutdown(wait=True)
-        print("Scheduler stopped.")
+        logger.info("Scheduler stopped.")
     
-    def start_scheduler(self, env):
+    def start_scheduler(self, env=None):
         """Start the scheduler and resume ThreadPoolExecutor."""
         self.keep_running = True
         scheduler_meta_collection = db["job_scheduler_meta"]
+        if env is None:
+            env = os.environ.get('env', 'development')
         scheduler_meta_collection.update_one({"identifier": "running_state", "env": env}, {"$set": {"status": "running"}})
-        print("Scheduler started.")
-        # env = 'development'
-        env = 'production'
+        logger.info("Scheduler started.")
         self.executor.submit(self.scheduler, env=env)
 
 

@@ -1,3 +1,6 @@
+import logging_config  # Ensure centralized logging is configured
+import logging
+logger = logging.getLogger(__name__)
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import json

@@ -1,3 +1,6 @@
+import logging_config
+import logging
+logger = logging.getLogger(__name__)
 import copy
 from datetime import datetime, timedelta
 import traceback

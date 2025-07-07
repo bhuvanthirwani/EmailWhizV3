@@ -1,0 +1,43 @@
+sudo docker build --no-cache --progress=plain -t emailwhiz-prod:latest .
+sudo docker tag emailwhiz-prod:latest
+sudo docker run -p 8082:8000 -it emailwhiz-prod
+------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+tmux kill-server
+tmux list-sessions
+tmux attach-session -t <session-name>
+tmux new -s session_name
+
+sudo apt install python3-pip
+curl -sSL https://install.python-poetry.org | python3 -
+sudo apt-get install python3.12
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 2
+/home/bhuvanthirwani2208usa/.local/bin/poetry install
+/home/bhuvanthirwani2208usa/.local/bin/poetry shell
+
+
+
+
+---------------------------------------------------------------------------------
+
+curl 'http://127.0.0.1:8000/api/fetch-employees/' \
+  -H 'Accept: */*' \
+  -H 'Accept-Language: en-US,en' \
+  -H 'Connection: keep-alive' \
+  -H 'Content-Type: application/json' \
+  -H 'Cookie: sessionid=bgdudos9yyspw9j9ai8j9upajpc8ry6m; csrftoken=9yTaANNzSkbd3QCuq61Sn936zG5mCN9u' \
+  -H 'Origin: http://127.0.0.1:8000' \
+  -H 'Referer: http://127.0.0.1:8000/ui/scrape-employees-data/fetch-employees' \
+  -H 'Sec-Fetch-Dest: empty' \
+  -H 'Sec-Fetch-Mode: cors' \
+  -H 'Sec-Fetch-Site: same-origin' \
+  -H 'Sec-GPC: 1' \
+  -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' \
+  -H 'X-CSRFToken: 4xss4X4FgIcejaPjBf7HdJV948thqhc23VbsuAH4YSdhcQhDRbYpqIO5tEotSUbm' \
+  -H 'sec-ch-ua: "Brave";v="131", "Chromium";v="131", "Not_A Brand";v="24"' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'sec-ch-ua-platform: "Windows"' \
+  --data-raw '{"auto":true,"job_titles":["Technical Recruiter"],"locations":["United States"]}'

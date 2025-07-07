@@ -1,3 +1,6 @@
+import logging_config  # Ensure centralized logging is configured
+import logging
+logger = logging.getLogger(__name__)
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import json
@@ -7,20 +10,48 @@ import uuid
 import traceback
 from email_sender.email_sender import send_email
 from flask import jsonify, request, session
-
-from db.db import get_users_db, get_user_details, jobs_collection
-
+import io, traceback
+from db.db import get_users_db, get_user_details, jobs_collection, db
+import logging
+logger = logging.getLogger(__name__)
 # Media root for file storage
 MEDIA_ROOT = 'users'
 
 def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
     try:
         sub_job_id = str(uuid.uuid4())
-        
+        jobs_collection.update_one(
+                    {"_id": job_id}, 
+                    {
+                        "$set": {"latest_log": "Job Execution Started", "job_updated_at": datetime.utcnow()},
+                        "$push": {"highlights": "Job Execution Started"}
+                    }
+                )
         job_details = jobs_collection.find_one({"_id": job_id})
         username = job_details['username']
+        jobs_collection.update_one(
+                    {"_id": job_id}, 
+                    {
+                        "$set": {"latest_log": f"job_details: {job_details}", "job_updated_at": datetime.utcnow()},
+                        "$push": {"highlights": f"job_details: {job_details}"}
+                    }
+                )
         details = get_user_details(username)
+        jobs_collection.update_one(
+                    {"_id": job_id}, 
+                    {
+                        "$set": {"latest_log": f"details: {details}", "job_updated_at": datetime.utcnow()},
+                        "$push": {"highlights": f"details: {details}"}
+                    }
+                )
         users_db = get_users_db(details['db_url'])
+        jobs_collection.update_one(
+                    {"_id": job_id}, 
+                    {
+                        "$set": {"latest_log": f"Fetched Users DB", "job_updated_at": datetime.utcnow()},
+                        "$push": {"highlights": f"Fetched Users DB"}
+                    }
+                )
         number_of_emails = job_details.get("number_of_emails", 1)
         # sub_job_document = {
         #     "total": number_of_emails,
@@ -49,21 +80,27 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
         if selected_subject:
             
             temp_subject = subject_collection.find_one({"username": username}, {"_id": 0, "subject_title": 1, "subject_content": 1})
-            print("subject: ", temp_subject)
-        print("locations: ", locations)
-        apollo_emails_collection = users_db['apollo_emails']
+            logger.info(f"subject: {temp_subject}")
+        logger.info(f"locations: {locations}")
+        apollo_emails_collection = db['apollo_emails']
+        
         employees = list(apollo_emails_collection.find({
-            # "titles": {"$in": job_titles},
+            "titles": {"$in": job_titles},
             "country": {"$in": locations},
             "$and": [
-    { "email": { "$exists": True } },
-    { "email": { "$ne": None } },
-    { "email": { "$ne": "" } }
-  ],
+                { "email": { "$exists": True } },
+                { "email": { "$ne": None } },
+                { "email": { "$ne": "" } }
+            ],
             "email_status": "verified"
             }))
-        print("len(employees): ", len(employees), (datetime.now() - start_time).total_seconds())
-        print("Number of Emails to be sent: ", number_of_emails-completed)
+        logger.info(f"len(employees): {len(employees)}, {(datetime.now() - start_time).total_seconds()}")
+        logger.info(f"Number of Emails to be sent: {number_of_emails-completed}")
+        
+        # Filter employees whose entries are not in apollo_emails_sent_history for the target_role
+        employee_details = None
+        employee_ids = [employee["id"] for employee in employees]
+        logger.info(f"employee_ids: {len(employee_ids)}")
         
         for i in range(completed, number_of_emails):
             _job = jobs_collection.find_one({"_id": job_id})
@@ -78,10 +115,7 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
                 )
                 return {"error": f"Job state got changed to {_job['status']} while sending emails."}
             
-            # Filter employees whose entries are not in apollo_emails_sent_history for the target_role
-            employee_details = None
-            employee_ids = [employee["id"] for employee in employees]
-
+            
             # Query the sent history collection for existing records matching person_id and target_role
             
             existing_sent_records = list(apollo_emails_sent_history_collection.find({
@@ -92,12 +126,12 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
 
             # Extract IDs of employees who already have emails sent for the target role
             already_sent_ids = {record["person_id"] for record in existing_sent_records}
-            print("already_sent_ids", len(already_sent_ids))
+            logger.info(f"already_sent_ids: {len(already_sent_ids)}")
             # Find the first employee who hasn't been sent an email for the target role
             employee_details = next((employee for employee in employees if employee["id"] not in already_sent_ids), None)
 
             if not employee_details:
-                log_message = "Unable to send Emails as None Emails are Filtered according to your input or All the Emails for your input have been already sent OR There are No Emails which are Unlocked."
+                log_message = f"Unable to send Emails as None Emails are Filtered according to your input or All the Emails for your input have been already sent OR There are No Emails which are Unlocked. {len(employee_ids)} {len(employees)} {job_titles} {locations}"
                 jobs_collection.update_one(
                     {"_id": job_id}, 
                     {
@@ -107,20 +141,20 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
                             "job_updated_at": datetime.utcnow()
                         },
                         "$push": {
-                            "highlights": log_message
+                            "highlights": log_message + "   Hello"
                         }
                     }
                 )
-                return {"error": f"Unable to send Emails as None Emails are Filtered according to your input or All the Emails for your input have been already sent OR There are No Emails which are Unlocked.", "count": 0}
+                return {"error": f"Unable to send Emails as None Emails are Filtered according to your input or All the Emails for your input have been already sent OR There are No Emails which are Unlocked. {len(employee_ids)} {len(employees)} {job_titles} {locations}", "count": 0}
             
-            print(employee_details, len(employee_details), (datetime.now() - start_time).total_seconds())
+            logger.info(f"employee_details: {employee_details}, count: {len(employee_details)}, elapsed: {(datetime.now() - start_time).total_seconds()}")
             # print(employee_details, len(employee_details), (datetime.now() - start_time).total_seconds())
             receiver_first_name = employee_details["first_name"]
             receiver_last_name = employee_details["last_name"]
             employee_email = employee_details["email"]
             organization_id = employee_details["organization_id"]
             company_details = companies_collection.find_one({"id": organization_id})
-            print("organization_id: ", organization_id, employee_details, (datetime.now() - start_time).total_seconds())
+            logger.info(f"organization_id: {organization_id}, {employee_details}, {(datetime.now() - start_time).total_seconds()}")
             company_name = company_details["name"]
             
             existing_email_history = apollo_emails_sent_history_collection.find_one(
@@ -131,7 +165,7 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
                     "username": username
                 }
             )
-            print("heroic3: ", (datetime.now() - start_time).total_seconds(), employee_email)
+            logger.info(f"heroic3: {(datetime.now() - start_time).total_seconds()}, {employee_email}")
             if existing_email_history:
                 log_message = f"Email already sent to the {employee_email} for the target role: {target_role}"
                 jobs_collection.update_one(
@@ -156,7 +190,7 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
                 'target_role': target_role, 
                 'company_name': company_name
             }
-            print("Subect Details: ", subject_details)
+            logger.info(f"Subject Details: {subject_details}")
 
             subject = temp_subject["subject_content"]
             for variable in ['first_name', 'last_name', 'target_role', 'company_name']:
@@ -165,9 +199,9 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
                     subject = subject.replace("{" + variable + "}", subject_details[variable])
                     # print("S: ", subject)
 
-            print("subject2: ", subject, (datetime.now() - start_time).total_seconds())
+            logger.info(f"subject2: {subject}, {(datetime.now() - start_time).total_seconds()}")
             # subject = f"[{details['first_name']} {details['last_name']}]: Exploring {target_role} Roles at {company_name}"
-            print(MEDIA_ROOT, username, 'templates', selected_template,'resumes', resume_name)
+            logger.info(f"MEDIA_ROOT: {MEDIA_ROOT}, username: {username}, templates: {selected_template}, resumes: {resume_name}")
             # template_path = os.path.join(settings.MEDIA_ROOT, username, 'templates', selected_template)
             # with open(template_path, 'r') as f:
             #     content = f.read()
@@ -175,7 +209,7 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
             template = users_db['email_templates'].find_one({"title": selected_template, "username": details['username']})
             content = template['content']
             resume_path = os.path.join(MEDIA_ROOT, username, 'resumes', resume_name)
-            print("resume_path: ", resume_path)
+            logger.info(f"resume_path: {resume_path}")
             
             personalized_message = content.format(first_name=receiver_first_name, last_name=receiver_last_name, email=employee_email, company_name=company_name, designation=target_role)
             # employee_email="shoaibthakur.23@gmail.com"
@@ -194,7 +228,7 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
                 )
             response = send_email(details['gmail_id'], details['gmail_in_app_password'], employee_email, subject, personalized_message, resume_path)
             if response.get("error", None):
-                log_message = f"Error: {response['error']}"
+                log_message = f"Error1: {response['error']}"
                 jobs_collection.update_one(
                     {"_id": job_id}, 
                     {
@@ -202,7 +236,7 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
                         "$push": {"highlights": log_message}
                     }
                 )
-                return {"error": f"Error: {response['error']}"}
+                return {"error": f"Error2: {response['error']}"}
             
             time.sleep(0.25)
             existing_entry = apollo_emails_sent_history_collection.find_one(
@@ -221,9 +255,9 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
                     {"_id": existing_entry["_id"], "username": username},
                     {"$push": {"emails": new_email_entry}}
                 )
-                print("Entry Exist, We have started pushing.....")
+                logger.info("Entry Exist, We have started pushing.....")
             else:
-                print("Entry Not Exist, We have started pushing.....")
+                logger.info("Entry Not Exist, We have started pushing.....")
                 # Create a new document if no history exists
                 email_history_entry = {
                     "person_id": employee_details["id"],
@@ -265,8 +299,14 @@ def send_cold_emails_by_automation_through_apollo_emails_job(job_id):
         )
         return {"success": f"All the Emails are Sent Successfully"}
     except Exception as exc:
-        traceback.print_exc()
-        log_message = f"Error: {exc}"
+        # traceback.print_exc()
+        exc_buffer = io.StringIO()
+        traceback.print_exc(file=exc_buffer)
+        traceback_str = exc_buffer.getvalue()
+        exc_buffer.close()
+        logger.info(f"job_id2: {job_id}")
+        log_message = f"Error3: {exc} | {traceback_str}"
+        logger.error(log_message)
         jobs_collection.update_one(
             {"_id": job_id}, 
             {
@@ -309,10 +349,11 @@ def send_cold_emails_by_automation_through_apollo_emails(request):
     selected_subject = data.get("selected_subject", None)
     resume_name = data.get("selected_resume", None)
     number_of_jobs = data.get("number_of_jobs")
-    print("loctions, job_titles, target_role, selected_template, resume_name, selected_subject", locations, job_titles, target_role, selected_template, resume_name, selected_subject)
+    logger.info(f"loctions, job_titles, target_role, selected_template, resume_name, selected_subject: {locations}, {job_titles}, {target_role}, {selected_template}, {resume_name}, {selected_subject}")
     details = get_user_details(username)
-    
+    logger.info(f"details: {details}")
     users_db = get_users_db(details['db_url'])
+    logger.info(f"users_db: {users_db}")
     jobs = jobs_collection
     existing_job = jobs.find_one({"username": username, "status": "running", "action": "send_cold_emails_by_automation_through_apollo_emails_job"})
     if existing_job:
@@ -327,8 +368,7 @@ def send_cold_emails_by_automation_through_apollo_emails(request):
             'sub_action': None,
             'created_at': datetime.utcnow(),
             'latest_log': "Job is Scheduled",
-            'highlights': [],
-            'job_name': 'Send Cold Emails by Automation',
+            'highlights': ["Job is Scheduled"],
             'job_updated_at': datetime.utcnow(),
             'schedule': schedule,
             'username': username,
@@ -351,7 +391,7 @@ def send_cold_emails_by_automation_through_apollo_emails(request):
             'sub_action': 'send_cold_emails_by_automation_through_apollo_emails_job',
             'created_at': datetime.utcnow(),
             'latest_log': "Job is Scheduled",
-            'highlights': [],
+            'highlights': ["Job is Scheduled"],
             'job_updated_at': datetime.utcnow(),
             'schedule': 'now',
             'username': username, 
@@ -376,6 +416,7 @@ def send_cold_emails_by_automation_through_apollo_emails(request):
             'total': number_of_emails
         }
     jobs.insert_one(job_document)
+    logger.info(f"job_document: {job_document}")
     return jsonify({"success": True, "message": "Job is Scheduled"}), 200
         
         

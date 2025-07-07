@@ -1,3 +1,4 @@
+import logging_config  # Ensure centralized logging is configured
 from flask import Flask, request, jsonify, send_file, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from pymongo import MongoClient
@@ -40,7 +41,7 @@ apollo_apis_curl_collection = db['apollo_apis_curl']
 apollo_emails_collection = db['apollo_emails']
 
 # Media root for file storage
-MEDIA_ROOT = 'media'
+MEDIA_ROOT = 'users'
 
 def get_user_details(username):
     """

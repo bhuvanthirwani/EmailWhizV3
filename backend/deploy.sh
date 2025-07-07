@@ -1,0 +1,1 @@
+sudo docker build --no-cache --progress=plain -t emailwhiz-prod:latest .
